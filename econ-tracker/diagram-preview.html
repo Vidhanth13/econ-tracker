@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  html,body{margin:0;background:#ffffff;font-family:'Segoe UI',system-ui,sans-serif}
+</style></head><body>
+<svg id="d" xmlns="http://www.w3.org/2000/svg" width="1580" height="430" viewBox="0 0 1580 430">
+  <defs>
+    <marker id="ar--" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#1e1e1e"/>
+    </marker>
+  </defs>
+  <text x="80" y="46" font-size="26" font-weight="700" fill="#1e1e1e">Econ Tracker — architecture (CPI)</text>
+
+  <!-- arrows first (behind) -->
+  <g stroke="#1e1e1e" stroke-width="2.5" fill="none" marker-end="url(#ar--)">
+    <path d="M300,120 L378,190"/>
+    <path d="M300,285 L378,205"/>
+    <path d="M580,205 L656,205"/>
+    <path d="M900,205 L976,205"/>
+    <path d="M1220,205 L1296,205"/>
+  </g>
+
+  <!-- boxes -->
+  <g stroke="#1e1e1e" stroke-width="2">
+    <rect x="80" y="80" width="220" height="90" rx="10" fill="#ffd8a8"/>
+    <rect x="80" y="230" width="220" height="90" rx="10" fill="#ffd8a8"/>
+    <rect x="380" y="150" width="200" height="110" rx="10" fill="#d0bfff"/>
+    <rect x="660" y="140" width="240" height="130" rx="10" fill="#c3fae8"/>
+    <rect x="980" y="140" width="240" height="130" rx="10" fill="#a5d8ff"/>
+    <rect x="1300" y="145" width="240" height="120" rx="10" fill="#b2f2bb"/>
+    <rect x="660" y="330" width="560" height="56" rx="10" fill="#fff3bf" stroke-width="1"/>
+  </g>
+
+  <g font-size="18" fill="#1e1e1e" text-anchor="middle">
+    <text x="190" y="118">BLS flat files</text><text x="190" y="140" font-size="14" fill="#555">download.bls.gov</text>
+    <text x="190" y="268">TradingView</text><text x="190" y="290" font-size="14" fill="#555">economic calendar</text>
+
+    <text x="480" y="192" font-weight="600">Python ingest</text>
+    <text x="480" y="214" font-size="14" fill="#333">load_cpi.py</text>
+    <text x="480" y="234" font-size="14" fill="#333">load_releases.py</text>
+
+    <text x="780" y="176" font-weight="600">Postgres · econ_data</text>
+    <text x="780" y="200" font-size="14" fill="#333">cpi.observation</text>
+    <text x="780" y="220" font-size="14" fill="#333">cpi.series / item / area</text>
+    <text x="780" y="240" font-size="14" fill="#333">cpi.release</text>
+
+    <text x="1100" y="176" font-weight="600">FastAPI · :8010</text>
+    <text x="1100" y="200" font-size="14" fill="#333">/headline /momentum</text>
+    <text x="1100" y="220" font-size="14" fill="#333">/drivers /trend</text>
+    <text x="1100" y="240" font-size="14" fill="#333">/history /categories</text>
+
+    <text x="1420" y="184" font-weight="600">React + Vite</text>
+    <text x="1420" y="206" font-size="14" fill="#333">+ Tailwind · :5183</text>
+    <text x="1420" y="230" font-size="14" fill="#333">Release cockpit UI</text>
+
+    <text x="940" y="364" font-size="15">Convention: SA → MoM &amp; levels · NSA → YoY   |   No LLM — pure DB → API → app</text>
+  </g>
+</svg>
+</body></html>

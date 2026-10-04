@@ -1,0 +1,145 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "openclaw/diagram-maker",
+  "elements": [
+    {
+      "type": "arrow", "id": "ar_bls", "x": 300, "y": 130,
+      "width": 80, "height": 60, "points": [[0,0],[80,60]],
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "fillStyle": "solid", "opacity": 100,
+      "endArrowhead": "arrow",
+      "startBinding": { "elementId": "bls", "focus": 0, "gap": 6 },
+      "endBinding": { "elementId": "ingest", "focus": 0, "gap": 6 }
+    },
+    {
+      "type": "arrow", "id": "ar_tv", "x": 300, "y": 280,
+      "width": 80, "height": 60, "points": [[0,0],[80,-60]],
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "fillStyle": "solid", "opacity": 100,
+      "endArrowhead": "arrow",
+      "startBinding": { "elementId": "tv", "focus": 0, "gap": 6 },
+      "endBinding": { "elementId": "ingest", "focus": 0, "gap": 6 }
+    },
+    {
+      "type": "arrow", "id": "ar_pg", "x": 580, "y": 200,
+      "width": 80, "height": 0, "points": [[0,0],[80,0]],
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "fillStyle": "solid", "opacity": 100,
+      "endArrowhead": "arrow",
+      "startBinding": { "elementId": "ingest", "focus": 0, "gap": 6 },
+      "endBinding": { "elementId": "pg", "focus": 0, "gap": 6 }
+    },
+    {
+      "type": "arrow", "id": "ar_api", "x": 900, "y": 200,
+      "width": 80, "height": 0, "points": [[0,0],[80,0]],
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "fillStyle": "solid", "opacity": 100,
+      "endArrowhead": "arrow",
+      "startBinding": { "elementId": "pg", "focus": 0, "gap": 6 },
+      "endBinding": { "elementId": "api", "focus": 0, "gap": 6 }
+    },
+    {
+      "type": "arrow", "id": "ar_react", "x": 1220, "y": 200,
+      "width": 80, "height": 0, "points": [[0,0],[80,0]],
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "fillStyle": "solid", "opacity": 100,
+      "endArrowhead": "arrow",
+      "startBinding": { "elementId": "api", "focus": 0, "gap": 6 },
+      "endBinding": { "elementId": "react", "focus": 0, "gap": 6 }
+    },
+
+    {
+      "type": "rectangle", "id": "bls", "x": 80, "y": 80, "width": 220, "height": 90,
+      "roundness": { "type": 3 }, "backgroundColor": "#ffd8a8", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "bls_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "bls_t", "x": 92, "y": 100, "width": 196, "height": 50,
+      "text": "BLS flat files\ndownload.bls.gov", "originalText": "BLS flat files\ndownload.bls.gov",
+      "fontSize": 18, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "bls", "autoResize": true
+    },
+    {
+      "type": "rectangle", "id": "tv", "x": 80, "y": 230, "width": 220, "height": 90,
+      "roundness": { "type": 3 }, "backgroundColor": "#ffd8a8", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "tv_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "tv_t", "x": 92, "y": 250, "width": 196, "height": 50,
+      "text": "TradingView\neconomic calendar", "originalText": "TradingView\neconomic calendar",
+      "fontSize": 18, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "tv", "autoResize": true
+    },
+
+    {
+      "type": "rectangle", "id": "ingest", "x": 380, "y": 150, "width": 200, "height": 110,
+      "roundness": { "type": 3 }, "backgroundColor": "#d0bfff", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "ingest_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "ingest_t", "x": 392, "y": 168, "width": 176, "height": 74,
+      "text": "Python ingest\nload_cpi.py\nload_releases.py", "originalText": "Python ingest\nload_cpi.py\nload_releases.py",
+      "fontSize": 17, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "ingest", "autoResize": true
+    },
+
+    {
+      "type": "rectangle", "id": "pg", "x": 660, "y": 140, "width": 240, "height": 130,
+      "roundness": { "type": 3 }, "backgroundColor": "#c3fae8", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "pg_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "pg_t", "x": 672, "y": 158, "width": 216, "height": 94,
+      "text": "Postgres · econ_data\ncpi.observation\ncpi.series / item / area\ncpi.release", "originalText": "Postgres · econ_data\ncpi.observation\ncpi.series / item / area\ncpi.release",
+      "fontSize": 16, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "pg", "autoResize": true
+    },
+
+    {
+      "type": "rectangle", "id": "api", "x": 980, "y": 140, "width": 240, "height": 130,
+      "roundness": { "type": 3 }, "backgroundColor": "#a5d8ff", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "api_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "api_t", "x": 992, "y": 158, "width": 216, "height": 94,
+      "text": "FastAPI · :8010\n/headline /momentum\n/drivers /trend\n/history /categories", "originalText": "FastAPI · :8010\n/headline /momentum\n/drivers /trend\n/history /categories",
+      "fontSize": 16, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "api", "autoResize": true
+    },
+
+    {
+      "type": "rectangle", "id": "react", "x": 1300, "y": 145, "width": 240, "height": 120,
+      "roundness": { "type": 3 }, "backgroundColor": "#b2f2bb", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 2, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "react_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "react_t", "x": 1312, "y": 165, "width": 216, "height": 80,
+      "text": "React + Vite\n+ Tailwind · :5183\nRelease cockpit UI", "originalText": "React + Vite\n+ Tailwind · :5183\nRelease cockpit UI",
+      "fontSize": 16, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "react", "autoResize": true
+    },
+
+    {
+      "type": "rectangle", "id": "note", "x": 660, "y": 320, "width": 560, "height": 60,
+      "roundness": { "type": 3 }, "backgroundColor": "#fff3bf", "fillStyle": "solid",
+      "strokeColor": "#1e1e1e", "strokeWidth": 1, "roughness": 1, "opacity": 100,
+      "boundElements": [{ "id": "note_t", "type": "text" }]
+    },
+    {
+      "type": "text", "id": "note_t", "x": 672, "y": 338, "width": 536, "height": 24,
+      "text": "Convention: SA → MoM & levels · NSA → YoY   |   No LLM — pure DB → API → app", "originalText": "Convention: SA → MoM & levels · NSA → YoY   |   No LLM — pure DB → API → app",
+      "fontSize": 15, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "center", "verticalAlign": "middle", "containerId": "note", "autoResize": true
+    },
+
+    {
+      "type": "text", "id": "title", "x": 80, "y": 24, "width": 700, "height": 32,
+      "text": "Econ Tracker — architecture (CPI)", "originalText": "Econ Tracker — architecture (CPI)",
+      "fontSize": 26, "fontFamily": 1, "strokeColor": "#1e1e1e",
+      "textAlign": "left", "verticalAlign": "top", "autoResize": true
+    }
+  ],
+  "appState": { "viewBackgroundColor": "#ffffff", "gridSize": null }
+}

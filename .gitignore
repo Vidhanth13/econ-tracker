@@ -1,0 +1,6 @@
+# Econ Tracker repo — track only these two projects; ignore everything else at this root
+/*
+!/.gitignore
+!/README.md
+!/econ-data/
+!/econ-tracker/
