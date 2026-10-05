@@ -3,6 +3,7 @@ import {
   getMonths, getCategories, getTrend,
   getHeadline, getMomentum, getDrivers, getHistory,
   getJoltsOverview, getCesOverview, getPceOverview, getCalendar,
+  getJournal, addJournal, patchJournal, delJournal,
 } from "./api";
 import LineChart from "./LineChart";
 import PPIExplorer from "./PPIExplorer";
@@ -475,7 +476,84 @@ function SurveyDashboard({ survey }) {
         </div>
       </>}
 
+      <Journal survey={survey} />
+
       <div className="text-center text-slate-600 text-xs mt-6">econ_data · {cfg.source} · SA for MoM · NSA for YoY · no LLM, pure DB → API → app</div>
+    </div>
+  );
+}
+
+// ── Journal: per-dashboard notes / positioning (the app's only writes) ──
+function Journal({ survey }) {
+  const [list, setList] = useState([]);
+  const [note, setNote] = useState("");
+  const [topic, setTopic] = useState("");
+  const [pos, setPos] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  const load = () => getJournal(survey).then(setList);
+  const resetForm = () => { setNote(""); setTopic(""); setPos(""); setEditId(null); };
+  useEffect(() => { load(); resetForm(); setOpen(false); }, [survey]);
+
+  const save = async () => {
+    if (!note.trim()) return;
+    if (editId) await patchJournal(editId, { note, topic, position: pos });
+    else await addJournal({ survey, note, topic, position: pos });
+    resetForm(); setOpen(false); load();
+  };
+  const startEdit = (e) => { setEditId(e.id); setNote(e.note); setTopic(e.topic || ""); setPos(e.position || ""); setOpen(true); };
+  const remove = async (id) => { await delJournal(id); if (editId === id) resetForm(); load(); };
+  const fmt = (iso) => new Date(iso).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Johannesburg" });
+
+  return (
+    <div className="bg-[#121821] border border-[#1e2733] rounded-xl p-5 mt-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-lg font-medium">Journal <span className="text-xs text-slate-500">· your thoughts & positioning on {survey.toUpperCase()}</span></div>
+        <button onClick={() => { resetForm(); setOpen(!open); }}
+          className="text-xs px-3 py-1.5 rounded-md bg-[#1f6feb] text-white font-medium">{open ? "Close" : "+ New entry"}</button>
+      </div>
+
+      {open && (
+        <div className="bg-[#0d1117] border border-[#1e2733] rounded-lg p-4 mb-4 space-y-3">
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3}
+            placeholder="What are you seeing in the data? e.g. eggs climbing — research top producers & supply chain…"
+            className="w-full bg-[#121821] border border-[#30363d] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#1f6feb]" />
+          <div className="flex gap-3 flex-wrap">
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Topic tag (e.g. eggs)"
+              className="flex-1 min-w-[160px] bg-[#121821] border border-[#30363d] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#1f6feb]" />
+            <input value={pos} onChange={(e) => setPos(e.target.value)} placeholder="Position idea (e.g. watch CALM)"
+              className="flex-1 min-w-[160px] bg-[#121821] border border-[#30363d] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#1f6feb]" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={save} className="text-xs px-4 py-2 rounded-md bg-[#238636] text-white font-medium">{editId ? "Update" : "Save entry"}</button>
+            <button onClick={() => { resetForm(); setOpen(false); }} className="text-xs px-4 py-2 rounded-md text-slate-400 hover:text-slate-200">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {list.length === 0 ? (
+        <div className="text-slate-600 text-sm">No entries yet. Capture your read on {survey.toUpperCase()} — it threads into the trading system.</div>
+      ) : (
+        <div className="space-y-3">
+          {list.map((e) => (
+            <div key={e.id} className="border border-[#1e2733] rounded-lg p-4 bg-[#0d1117]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {e.topic && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#1f2d3d] text-[#58a6ff] font-medium">#{e.topic}</span>}
+                  <span className="text-[11px] text-slate-600">{fmt(e.created_at)}</span>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => startEdit(e)} className="text-[11px] text-slate-500 hover:text-slate-200">Edit</button>
+                  <button onClick={() => remove(e.id)} className="text-[11px] text-slate-500 hover:text-[#f85149]">Delete</button>
+                </div>
+              </div>
+              <div className="text-sm text-slate-200 mt-2 whitespace-pre-wrap">{e.note}</div>
+              {e.position && <div className="text-xs text-[#3fb950] mt-2">▸ Position: {e.position}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -20,9 +20,9 @@ Endpoints (all accept &survey=cpi|ppi, default cpi):
   GET /api/drivers?month=&level=1                  -> window MoM by category
   GET /api/history?item=&n=24                      -> release history table
 """
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-from db import query
+from db import query, execute
 import re
 from datetime import datetime, timezone
 
@@ -960,3 +960,37 @@ def calendar(country: str = "USD", impacts: str = "High,Medium",
         (up if r["event_at"] >= now else past).append(r)
     past.reverse()
     return {"now": now.isoformat(), "upcoming": up, "past": past}
+
+
+# ── Journal (per-dashboard notes; the app's only writes) ──────────────────
+@app.get("/api/journal")
+def journal_list(survey: str):
+    return query("SELECT * FROM journal.entry WHERE survey=%(s)s ORDER BY created_at DESC", {"s": survey})
+
+
+@app.post("/api/journal")
+def journal_add(payload: dict = Body(...)):
+    p = {"survey": payload.get("survey"), "topic": (payload.get("topic") or None),
+         "note": payload.get("note"), "position": (payload.get("position") or None)}
+    if not p["survey"] or not (p["note"] or "").strip():
+        return {"error": "survey and note are required"}
+    return execute("""INSERT INTO journal.entry (survey, topic, note, position)
+                      VALUES (%(survey)s,%(topic)s,%(note)s,%(position)s) RETURNING *""", p)[0]
+
+
+@app.patch("/api/journal/{eid}")
+def journal_edit(eid: int, payload: dict = Body(...)):
+    p = {"id": eid, "topic": payload.get("topic"), "note": payload.get("note"),
+         "position": payload.get("position")}
+    return execute("""UPDATE journal.entry SET
+                        note     = COALESCE(%(note)s, note),
+                        topic    = %(topic)s,
+                        position = %(position)s,
+                        updated_at = now()
+                      WHERE id=%(id)s RETURNING *""", p)[0]
+
+
+@app.delete("/api/journal/{eid}")
+def journal_del(eid: int):
+    execute("DELETE FROM journal.entry WHERE id=%(id)s", {"id": eid}, returning=False)
+    return {"ok": True}

@@ -22,3 +22,9 @@ export const getCesOverview = (spark = 24) => j(`/api/ces/overview?spark=${spark
 export const getPceOverview = () => j(`/api/pce/overview`);
 export const getCalendar = (country = "USD", impacts = "High,Medium") =>
   j(`/api/calendar?country=${country}&impacts=${impacts}`);
+
+// journal (the app's only writes)
+export const getJournal = (survey) => j(`/api/journal?survey=${survey}`);
+export const addJournal = (b) => fetch(`/api/journal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }).then((r) => r.json());
+export const patchJournal = (id, b) => fetch(`/api/journal/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }).then((r) => r.json());
+export const delJournal = (id) => fetch(`/api/journal/${id}`, { method: "DELETE" }).then((r) => r.json());
