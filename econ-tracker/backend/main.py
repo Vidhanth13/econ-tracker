@@ -23,6 +23,8 @@ Endpoints (all accept &survey=cpi|ppi, default cpi):
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from db import query
+import re
+from datetime import datetime, timezone
 
 app = FastAPI(title="Econ Tracker API", version="4.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -918,3 +920,43 @@ def pce_trend(line: int = PCE_HEADLINE, measure: str = "D",
     meta = query("SELECT line_text FROM pce.line WHERE line_number=%(l)s", {"l": line})
     return {"line": line, "measure": measure,
             "line_text": meta[0]["line_text"] if meta else str(line), "points": pts}
+
+
+# ── Economic calendar (read-only; data lives in calendar.event, ingested
+#    separately from the Forex Factory feed — the app never calls the feed) ──
+def _cal_num(s):
+    if not s:
+        return None
+    m = re.search(r"-?\d+(?:\.\d+)?", s.replace(",", ""))
+    return float(m.group()) if m else None
+
+
+@app.get("/api/calendar")
+def calendar(country: str = "USD", impacts: str = "High,Medium",
+             past_days: int = 21, ahead_days: int = 10):
+    """Upcoming + past economic events from calendar.event. Times are UTC in
+    the payload; the frontend renders SAST. Surprise = actual - forecast when
+    both parse numerically."""
+    imp = [i for i in impacts.split(",") if i]
+    all_c = country.lower() in ("", "all")
+    rows = query(
+        """
+        SELECT event_at, country, title, impact, forecast, previous, actual
+        FROM calendar.event
+        WHERE (%(all_c)s OR country = %(country)s)
+          AND (%(all_i)s OR impact = ANY(%(imp)s))
+          AND event_at >= now() - make_interval(days => %(pd)s)
+          AND event_at <= now() + make_interval(days => %(ad)s)
+        ORDER BY event_at
+        """,
+        {"country": country, "all_c": all_c, "imp": imp, "all_i": not imp,
+         "pd": past_days, "ad": ahead_days},
+    )
+    now = datetime.now(timezone.utc)
+    up, past = [], []
+    for r in rows:
+        f, a = _cal_num(r["forecast"]), _cal_num(r["actual"])
+        r["surprise"] = round(a - f, 2) if (a is not None and f is not None) else None
+        (up if r["event_at"] >= now else past).append(r)
+    past.reverse()
+    return {"now": now.isoformat(), "upcoming": up, "past": past}

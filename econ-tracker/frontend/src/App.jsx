@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getMonths, getCategories, getTrend,
   getHeadline, getMomentum, getDrivers, getHistory,
-  getJoltsOverview, getCesOverview, getPceOverview,
+  getJoltsOverview, getCesOverview, getPceOverview, getCalendar,
 } from "./api";
 import LineChart from "./LineChart";
 import PPIExplorer from "./PPIExplorer";
@@ -38,13 +38,13 @@ const SURVEY_KEYS = new Set(NAV_SURVEYS.map((s) => s.key));
 
 // ── Suite shell: left sidebar + the active view ──────────────────────────
 export default function App() {
-  const [view, setView] = useState("overview");
+  const [view, setView] = useState(() => new URLSearchParams(location.search).get("view") || "overview");
   return (
     <div className="flex min-h-screen bg-[#0a0d12]">
       <Sidebar view={view} setView={setView} />
       <main className="flex-1 min-w-0">
         {view === "overview" && <Overview setView={setView} />}
-        {view === "calendar" && <Placeholder title="Calendar" note="This week's and past economic events — forecast · previous · actual. Building this next." />}
+        {view === "calendar" && <Calendar />}
         {SURVEY_KEYS.has(view) && <SurveyDashboard key={view} survey={view} />}
       </main>
     </div>
@@ -194,6 +194,99 @@ function Sparkline({ points, color = "#58a6ff", h = 32, w = 116 }) {
     <svg width={w} height={h} className="overflow-visible">
       <path d={dpath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+// ── Calendar: economic releases (read from calendar.event via /api/calendar) ──
+const IMPACT_COL = { High: "#f85149", Medium: "#f0883e", Low: "#6e7681", Holiday: "#6e7681" };
+const saDay = (iso) => new Date(iso).toLocaleDateString("en-ZA", { weekday: "short", day: "2-digit", month: "short", timeZone: "Africa/Johannesburg" });
+const saTime = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Africa/Johannesburg" });
+
+function Calendar() {
+  const [d, setD] = useState(null);
+  const [wide, setWide] = useState(false); // false = US key events · true = all
+  useEffect(() => {
+    let live = true; setD(null);
+    getCalendar(wide ? "all" : "USD", wide ? "" : "High,Medium").then((x) => { if (live) setD(x); });
+    return () => { live = false; };
+  }, [wide]);
+
+  const group = (list) => {
+    const g = []; let c = null;
+    for (const e of (list || [])) {
+      const day = saDay(e.event_at);
+      if (!c || c.day !== day) { c = { day, items: [] }; g.push(c); }
+      c.items.push(e);
+    }
+    return g;
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
+        <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+          {[["US · key", false], ["All", true]].map(([lbl, k]) => (
+            <button key={lbl} onClick={() => setWide(k)}
+              className={`px-3 py-1 rounded-md text-xs ${wide === k ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+          ))}
+        </div>
+      </div>
+      <p className="text-slate-500 text-sm mb-6">Economic releases · times in SAST · previous · forecast · actual</p>
+      {!d ? <div className="text-slate-600 text-sm">Loading…</div> : <>
+        <CalSection title="Upcoming" groups={group(d.upcoming)} empty="No upcoming events in range." />
+        <CalSection title="Past" groups={group(d.past)} empty="No past events in range yet — history builds as releases print." dim />
+      </>}
+      <div className="text-center text-slate-600 text-xs mt-8">calendar.event · ingested from Forex Factory · read-only · no LLM</div>
+    </div>
+  );
+}
+
+function CalSection({ title, groups, empty, dim }) {
+  return (
+    <div className="mb-8">
+      <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">{title}</div>
+      {groups.length === 0 ? <div className="text-slate-600 text-sm">{empty}</div> : (
+        <div className={`space-y-5 ${dim ? "opacity-80" : ""}`}>
+          {groups.map((g) => (
+            <div key={g.day}>
+              <div className="text-sm font-medium text-slate-300 mb-2">{g.day}</div>
+              <div className="rounded-xl border border-[#1e2733] overflow-hidden">
+                {g.items.map((e, i) => <EventRow key={i} e={e} />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventRow({ e }) {
+  const col = IMPACT_COL[e.impact] || "#6e7681";
+  const sc = e.surprise == null ? "#7d8590" : e.surprise > 0 ? "#f0883e" : e.surprise < 0 ? "#58a6ff" : "#7d8590";
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 border-t border-[#1e2733] first:border-t-0 bg-[#121821]">
+      <div className="w-12 text-sm tabular-nums text-slate-300">{saTime(e.event_at)}</div>
+      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: col }} title={e.impact} />
+      <div className="w-9 text-[11px] font-medium text-slate-500">{e.country}</div>
+      <div className="flex-1 min-w-0 text-sm text-slate-200 truncate">{e.title}</div>
+      <div className="hidden sm:flex items-center gap-4 text-xs tabular-nums">
+        <CalCell label="Prev" v={e.previous} />
+        <CalCell label="Fcst" v={e.forecast} />
+        <CalCell label="Act" v={e.actual} strong />
+        <div className="w-14 text-right" style={{ color: sc }}>{e.surprise == null ? "" : (e.surprise > 0 ? "+" : "") + e.surprise}</div>
+      </div>
+    </div>
+  );
+}
+
+function CalCell({ label, v, strong }) {
+  return (
+    <div className="w-12 text-right">
+      <div className="text-[9px] uppercase text-slate-600 leading-none">{label}</div>
+      <div className={strong ? "text-slate-100 font-medium" : "text-slate-400"}>{v || "—"}</div>
+    </div>
   );
 }
 

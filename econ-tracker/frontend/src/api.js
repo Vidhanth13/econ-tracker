@@ -20,3 +20,5 @@ export const getNode = (item, lookback = 1, survey = "ppi", cls = "fd") =>
 export const getJoltsOverview = (spark = 24) => j(`/api/jolts/overview?spark=${spark}`);
 export const getCesOverview = (spark = 24) => j(`/api/ces/overview?spark=${spark}`);
 export const getPceOverview = () => j(`/api/pce/overview`);
+export const getCalendar = (country = "USD", impacts = "High,Medium") =>
+  j(`/api/calendar?country=${country}&impacts=${impacts}`);
