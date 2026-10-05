@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getMonths, getCategories, getTrend,
   getHeadline, getMomentum, getDrivers, getHistory,
+  getJoltsOverview, getCesOverview, getPceOverview,
 } from "./api";
 import LineChart from "./LineChart";
 import PPIExplorer from "./PPIExplorer";
@@ -27,11 +28,11 @@ const NAV_TOP = [
   { key: "calendar", label: "Calendar", icon: "▦" },
 ];
 const NAV_SURVEYS = [
-  { key: "cpi", label: "CPI", sub: "Consumer prices" },
-  { key: "ppi", label: "PPI", sub: "Producer prices" },
-  { key: "jolts", label: "Jobs · JOLTS", sub: "Labour flows" },
-  { key: "ces", label: "NFP · CES", sub: "Payrolls" },
-  { key: "pce", label: "PCE", sub: "Spending + prices" },
+  { key: "cpi", label: "CPI", src: "BLS · CPI", sub: "Consumer prices" },
+  { key: "ppi", label: "PPI", src: "BLS · PPI", sub: "Producer prices" },
+  { key: "jolts", label: "Jobs · JOLTS", src: "BLS · JOLTS", sub: "Job openings & labour flows" },
+  { key: "ces", label: "NFP · CES", src: "BLS · CES", sub: "Nonfarm payrolls" },
+  { key: "pce", label: "PCE", src: "BEA · NIPA", sub: "Spending + prices" },
 ];
 const SURVEY_KEYS = new Set(NAV_SURVEYS.map((s) => s.key));
 
@@ -42,7 +43,7 @@ export default function App() {
     <div className="flex min-h-screen bg-[#0a0d12]">
       <Sidebar view={view} setView={setView} />
       <main className="flex-1 min-w-0">
-        {view === "overview" && <Placeholder title="Overview" note="A one-glance read of every indicator — latest print, surprise, sparkline and next release. Building this next." />}
+        {view === "overview" && <Overview setView={setView} />}
         {view === "calendar" && <Placeholder title="Calendar" note="This week's and past economic events — forecast · previous · actual. Building this next." />}
         {SURVEY_KEYS.has(view) && <SurveyDashboard key={view} survey={view} />}
       </main>
@@ -51,13 +52,14 @@ export default function App() {
 }
 
 function Sidebar({ view, setView }) {
-  const Item = ({ k, label, sub, icon }) => (
+  const Item = ({ k, label, src, sub, icon }) => (
     <button onClick={() => setView(k)}
-      className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-3 ${
+      className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-3 ${
         view === k ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-100 hover:bg-[#141b24]"}`}>
       {icon && <span className="text-base leading-none opacity-80">{icon}</span>}
       <span className="min-w-0">
         <span className="block text-sm font-medium leading-tight">{label}</span>
+        {src && <span className={`block text-[10px] uppercase tracking-wide leading-tight mt-0.5 ${view === k ? "text-blue-200" : "text-slate-500"}`}>{src}</span>}
         {sub && <span className={`block text-[11px] leading-tight ${view === k ? "text-blue-100" : "text-slate-600"}`}>{sub}</span>}
       </span>
     </button>
@@ -82,6 +84,116 @@ function Placeholder({ title, note }) {
       <h1 className="text-2xl font-semibold tracking-tight mb-2">{title}</h1>
       <div className="bg-[#121821] border border-[#1e2733] rounded-xl p-8 text-slate-400 text-sm">{note}</div>
     </div>
+  );
+}
+
+// ── Overview: one glanceable tile per indicator ──────────────────────────
+const SV = Object.fromEntries(NAV_SURVEYS.map((s) => [s.key, s]));
+const metaOf = (k) => ({ title: SV[k].label, src: SV[k].src, what: SV[k].sub });
+const fmtNum = (n) => n == null ? "—" : (Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : (Math.round(n * 10) / 10).toLocaleString());
+
+function Overview({ setView }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      getHeadline(null, "cpi").catch(() => null), getHistory(null, 24, "cpi").catch(() => []),
+      getHeadline(null, "ppi").catch(() => null), getHistory(null, 24, "ppi").catch(() => []),
+      getJoltsOverview().catch(() => null), getCesOverview().catch(() => null), getPceOverview().catch(() => null),
+    ]).then((r) => { if (live) setD({ cpi: r[0], cpiH: r[1], ppi: r[2], ppiH: r[3], jolts: r[4], ces: r[5], pce: r[6] }); });
+    return () => { live = false; };
+  }, []);
+
+  const sparkYoy = (hist) => (hist || []).slice().sort((a, b) => (a.ym < b.ym ? -1 : 1)).map((x) => x.yoy_pct).filter((v) => v != null);
+
+  const priceTile = (key, hd, hist) => {
+    const h = hd?.headline; const sm = surpriseMeta(h?.surprise_yoy);
+    return { key, ...metaOf(key), month: h?.month,
+      big: { label: "YoY (NSA)", value: h ? `${h.yoy_pct?.toFixed(2)}%` : "—", color: "#e6edf3" },
+      subs: h ? [
+        { label: "MoM (SA)", value: `${h.mom_pct >= 0 ? "+" : ""}${h.mom_pct?.toFixed(2)}%`, color: h.mom_pct >= 0 ? "#e6edf3" : "#3fb950" },
+        { label: "vs consensus", value: `${sm.tag} ${h.surprise_yoy != null ? (h.surprise_yoy > 0 ? "+" : "") + h.surprise_yoy.toFixed(2) : "—"}`, color: sm.col },
+      ] : [], spark: sparkYoy(hist), sparkColor: "#a371f7" };
+  };
+  const joltsTile = () => {
+    const o = d?.jolts, c = o?.cards?.[0];
+    return { key: "jolts", ...metaOf("jolts"), month: o?.month,
+      big: { label: c?.label || "Job openings", value: c ? fmtNum(c.value) + (c.unit === "rate" ? "%" : "") : "—", color: "#e6edf3" },
+      subs: c ? [{ label: "MoM Δ", value: `${c.mom_chg >= 0 ? "+" : ""}${fmtNum(c.mom_chg)}`, color: c.mom_chg >= 0 ? "#3fb950" : "#f85149" }] : [],
+      spark: (c?.spark || []).map((p) => p.value), sparkColor: "#58a6ff" };
+  };
+  const cesTile = () => {
+    const o = d?.ces, c = (o?.cards || []).find((x) => x.key === "nfp") || o?.cards?.[0];
+    const wage = (o?.cards || []).find((x) => /earn|wage/i.test(x.key + x.label));
+    return { key: "ces", ...metaOf("ces"), month: o?.month,
+      big: { label: "Payrolls MoM · jobs added", value: c ? `${c.mom_chg >= 0 ? "+" : ""}${fmtNum(c.mom_chg)}K` : "—", color: c ? (c.mom_chg >= 0 ? "#3fb950" : "#f85149") : "#e6edf3" },
+      subs: wage ? [{ label: `${wage.label} YoY`, value: `${wage.yoy_pct >= 0 ? "+" : ""}${wage.yoy_pct?.toFixed(2)}%`, color: "#e6edf3" }] : [],
+      spark: (c?.spark || []).map((p) => p.value), sparkColor: "#3fb950" };
+  };
+  const pceTile = () => {
+    const o = d?.pce, core = (o?.cards || []).find((x) => /core/i.test(x.label)), spend = (o?.cards || []).find((x) => x.key === "spend");
+    return { key: "pce", ...metaOf("pce"), month: o?.month,
+      big: { label: "Core PCE YoY", value: core ? `${core.value_yoy?.toFixed(2)}%` : "—", color: "#e6edf3" },
+      subs: spend ? [{ label: "Spending YoY", value: `${spend.value_yoy >= 0 ? "+" : ""}${spend.value_yoy?.toFixed(2)}%`, color: "#e6edf3" }] : [],
+      spark: null, sparkColor: "#58a6ff" };
+  };
+
+  const tiles = [priceTile("cpi", d?.cpi, d?.cpiH), priceTile("ppi", d?.ppi, d?.ppiH), joltsTile(), cesTile(), pceTile()];
+
+  return (
+    <div className="max-w-7xl mx-auto px-6 py-8">
+      <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+      <p className="text-slate-500 text-sm mb-6">State of the economy at a glance · latest print per indicator · click a card to dive in</p>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {tiles.map((t) => <OvTile key={t.key} t={t} loading={!d} onClick={() => setView(t.key)} />)}
+      </div>
+      <div className="text-center text-slate-600 text-xs mt-8">econ_data · live from Postgres · no LLM, pure DB → API → app</div>
+    </div>
+  );
+}
+
+function OvTile({ t, loading, onClick }) {
+  return (
+    <button onClick={onClick}
+      className="text-left bg-[#121821] border border-[#1e2733] rounded-xl p-5 hover:border-[#30426b] hover:bg-[#141c28] transition-colors">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="text-sm font-semibold">{t.title}</div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">{t.src} · {t.what}</div>
+        </div>
+        <div className="text-[11px] text-slate-500">{t.month || (loading ? "…" : "—")}</div>
+      </div>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-[11px] text-slate-500">{t.big.label}</div>
+          <div className="text-3xl font-semibold tabular-nums" style={{ color: t.big.color }}>{t.big.value}</div>
+        </div>
+        {t.spark && t.spark.length > 1 && <Sparkline points={t.spark} color={t.sparkColor} />}
+      </div>
+      {t.subs?.length > 0 && (
+        <div className="flex gap-5 mt-3 flex-wrap">
+          {t.subs.map((s, i) => (
+            <div key={i}>
+              <div className="text-[11px] text-slate-500">{s.label}</div>
+              <div className="text-sm font-medium tabular-nums" style={{ color: s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </button>
+  );
+}
+
+function Sparkline({ points, color = "#58a6ff", h = 32, w = 116 }) {
+  const vals = (points || []).map(Number).filter((v) => !Number.isNaN(v));
+  if (vals.length < 2) return <div style={{ width: w, height: h }} />;
+  const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
+  const step = w / (vals.length - 1);
+  const dpath = vals.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`).join(" ");
+  return (
+    <svg width={w} height={h} className="overflow-visible">
+      <path d={dpath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
   );
 }
 

@@ -15,3 +15,8 @@ export const getHistory = (item, n = 24, survey, cls) =>
   j(`/api/history?${item ? `item=${item}&` : ""}n=${n}&${q(survey, cls)}`);
 export const getNode = (item, lookback = 1, survey = "ppi", cls = "fd") =>
   j(`/api/node?item=${item}&lookback=${lookback}&${q(survey, cls)}`);
+
+// overview helpers for the suite landing page
+export const getJoltsOverview = (spark = 24) => j(`/api/jolts/overview?spark=${spark}`);
+export const getCesOverview = (spark = 24) => j(`/api/ces/overview?spark=${spark}`);
+export const getPceOverview = () => j(`/api/pce/overview`);
