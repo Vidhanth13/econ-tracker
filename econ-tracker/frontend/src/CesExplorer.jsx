@@ -8,6 +8,16 @@ const j = (url) => fetch(url).then((r) => r.json());
 const UP = "#3fb950", DOWN = "#f85149", BLUE = "#58a6ff", HOT = "#f0883e", PURPLE = "#a371f7", NEU = "#7d8590";
 const ordOf = (ym) => { const [y, m] = ym.split("-").map(Number); return y * 12 + m; };
 
+// jobs added over an n-month window = level now − level n months ago (n=1 ≡ mom_chg)
+const windowChg = (pts, n) => {
+  const m = {};
+  (pts || []).forEach((p) => { m[ordOf(p.ym)] = p.value; });
+  return (pts || []).map((p) => {
+    const o = ordOf(p.ym), base = m[o - n];
+    return { ym: p.ym, label: p.label, v: (base != null && p.value != null) ? p.value - base : null };
+  });
+};
+
 // jobs change is in thousands: 85 -> "+85K", 1240 -> "+1.24M"
 const fmtJobs = (v) => v == null ? "—"
   : (v > 0 ? "+" : v < 0 ? "−" : "") + (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(2) + "M" : Math.abs(v).toFixed(0) + "K");
@@ -58,24 +68,29 @@ function PayrollsChart({ from, to, months, setFrom, setTo }) {
   const [priv, setPriv] = useState(null);
   const [mode, setMode] = useState("chg");   // chg = jobs added | level = total jobs
   const [view, setView] = useState("both");  // both | nfp | priv
+  const [win, setWin] = useState(1);          // jobs-added window: 1 | 3 | 6 | 12 months
   useEffect(() => {
     if (!from || !to) return;
     j(`/api/ces/trend?key=nfp&from=${from}&to=${to}`).then(setNfp);
     j(`/api/ces/trend?key=private&from=${from}&to=${to}`).then(setPriv);
   }, [from, to]);
 
-  const reduce = (pts) => (pts || []).map((p) => ({ ym: p.ym, label: p.label, v: mode === "chg" ? p.mom_chg : p.value }));
+  const reduce = (pts) => mode === "level"
+    ? (pts || []).map((p) => ({ ym: p.ym, label: p.label, v: p.value }))
+    : windowChg(pts, win);
   const all = [
     { key: "nfp", label: "Nonfarm", color: BLUE, pts: reduce(nfp?.points) },
     { key: "priv", label: "Private", color: UP, pts: reduce(priv?.points) },
   ];
   const series = view === "both" ? all : all.filter((s) => s.key === view);
+  const WINL = { 1: "each month", 3: "over 3 months", 6: "over 6 months", 12: "over 12 months" };
   return (
-    <Card title="Payrolls" subtitle={mode === "chg" ? "jobs added each month (000s) — the NFP print" : "total jobs on payrolls"}
+    <Card title="Payrolls" subtitle={mode === "chg" ? `jobs added ${WINL[win]} (000s) — the NFP print` : "total jobs on payrolls"}
       from={from} to={to} months={months} setFrom={setFrom} setTo={setTo}
       toggle={<>
         <Toggle opts={[["both", "Both"], ["nfp", "Nonfarm"], ["priv", "Private"]]} val={view} set={setView} accent />
         <Toggle opts={[["chg", "Jobs added"], ["level", "Total level"]]} val={mode} set={setMode} />
+        {mode === "chg" && <Toggle opts={[[1, "1M"], [3, "3M"], [6, "6M"], [12, "12M"]]} val={win} set={setWin} accent />}
       </>}>
       {view === "both" && <Legend series={series} />}
       <Plot series={series} fmtY={mode === "chg" ? fmtJobs : fmtLevel} zeroLine={mode === "chg"} asBars={view !== "both" && mode === "chg"} />
@@ -116,13 +131,14 @@ function WageHoursChart({ from, to, months, setFrom, setTo }) {
 function SectorSection({ months }) {
   const [sectors, setSectors] = useState(null);
   const [sortBy, setSortBy] = useState("change");   // change | level
+  const [lookback, setLookback] = useState(1);       // 1 | 3 | 6 | 12 month window
   const [sel, setSel] = useState({ code: "70000000", name: "Leisure and hospitality" });
   const [trend, setTrend] = useState(null);
   const [mode, setMode] = useState("chg");          // chg | level
   const [from, setFrom] = useState("");             // this chart's own date range
   const [to, setTo] = useState("");
 
-  useEffect(() => { j("/api/ces/industry").then(setSectors); }, []);
+  useEffect(() => { setSectors(null); j(`/api/ces/industry?lookback=${lookback}`).then(setSectors); }, [lookback]);
   useEffect(() => {
     if (months.length && !to) { setTo(months[months.length - 1].value); setFrom(months[Math.max(0, months.length - 121)].value); }
   }, [months]);
@@ -135,17 +151,20 @@ function SectorSection({ months }) {
   const rows = (sectors?.rows || []).filter((x) => x.display_level === 2);
   const sorted = useMemo(() => {
     if (sortBy === "level") return [...rows].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-    return [...rows].sort((a, b) => (b.mom_chg ?? -1e9) - (a.mom_chg ?? -1e9));
+    return [...rows].sort((a, b) => (b.win_chg ?? -1e9) - (a.win_chg ?? -1e9));
   }, [rows, sortBy]);
-  const maxJobs = Math.max(1, ...rows.map((x) => Math.abs(x.mom_chg || 0)));
+  const maxJobs = Math.max(1, ...rows.map((x) => Math.abs(x.win_chg || 0)));
+  const WIN = { 1: "this month", 3: "last 3 months", 6: "last 6 months", 12: "last 12 months" };
 
-  const pts = (trend?.points || []).map((p) => ({ ym: p.ym, label: p.label, v: mode === "chg" ? p.mom_chg : p.value }));
+  const pts = mode === "chg"
+    ? windowChg(trend?.points, lookback)
+    : (trend?.points || []).map((p) => ({ ym: p.ym, label: p.label, v: p.value }));
 
   return (
     <div className="bg-[#121821] border border-[#1e2733] rounded-xl p-5">
       <div className="flex items-center gap-3 mb-1">
         <div className="text-lg font-medium">Where the jobs came from</div>
-        <span className="text-xs text-slate-500">· {sectors?.month || "…"} · by sector</span>
+        <span className="text-xs text-slate-500">· {sectors?.month || "…"} · jobs added {WIN[lookback]} · by sector</span>
       </div>
 
       {/* selected-sector chart — with its own date range (cf. CPI chart) */}
@@ -166,14 +185,22 @@ function SectorSection({ months }) {
       {/* list controls: sort toggle sits with the categories */}
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <div className="text-xs text-slate-500">
-          <span style={{ color: UP }}>green</span> = jobs added · <span style={{ color: DOWN }}>red</span> = jobs lost this month ·
-          bar = size of the monthly change · <span className="text-slate-300">click a sector to chart it ↑</span>
+          <span style={{ color: UP }}>green</span> = jobs added · <span style={{ color: DOWN }}>red</span> = jobs lost over {WIN[lookback]} ·
+          bar = size of the change · <span className="text-slate-300">click a sector to chart it ↑</span>
         </div>
-        <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
-          {[["change", "Jobs added"], ["level", "Total size"]].map(([k, lbl]) => (
-            <button key={k} onClick={() => setSortBy(k)}
-              className={`px-2.5 py-1 rounded-md text-xs ${sortBy === k ? "bg-[#30363d] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+            {[[1, "1M"], [3, "3M"], [6, "6M"], [12, "12M"]].map(([lb, lbl]) => (
+              <button key={lb} onClick={() => setLookback(lb)}
+                className={`px-2.5 py-1 rounded-md text-xs ${lookback === lb ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+            {[["change", "Jobs added"], ["level", "Total size"]].map(([k, lbl]) => (
+              <button key={k} onClick={() => setSortBy(k)}
+                className={`px-2.5 py-1 rounded-md text-xs ${sortBy === k ? "bg-[#30363d] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+            ))}
+          </div>
         </div>
       </div>
       {sectors === null
@@ -186,12 +213,12 @@ function SectorSection({ months }) {
                   <span className={`truncate ${sel?.code === r.industry_code ? "text-white" : "text-slate-300 group-hover:text-white"}`}>{r.industry_name}</span>
                   <span className="flex items-center gap-4 tabular-nums shrink-0 text-xs">
                     <span className="text-slate-400 w-16 text-right">{fmtLevel(r.value)}</span>
-                    <span className="w-16 text-right font-semibold" style={{ color: jobsColor(r.mom_chg) }}>{fmtJobs(r.mom_chg)}</span>
+                    <span className="w-16 text-right font-semibold" style={{ color: jobsColor(r.win_chg) }}>{fmtJobs(r.win_chg)}</span>
                     <span className="w-16 text-right" style={{ color: jobsColor(r.yoy_pct) }}>{signed(r.yoy_pct)} yr</span>
                   </span>
                 </div>
                 <div className="h-1.5 bg-[#0d1117] rounded mt-1 overflow-hidden">
-                  <div style={{ width: `${(Math.abs(r.mom_chg || 0) / maxJobs) * 100}%`, background: jobsColor(r.mom_chg) }} className="h-full rounded" />
+                  <div style={{ width: `${(Math.abs(r.win_chg || 0) / maxJobs) * 100}%`, background: jobsColor(r.win_chg) }} className="h-full rounded" />
                 </div>
               </button>
             ))}

@@ -24,10 +24,11 @@ export default function PceExplorer() {
   const [line, setLine] = useState(1);              // selected category for the chart
   const [measure, setMeasure] = useState("D");      // D spending | P price
   const [sortBy, setSortBy] = useState("share");    // share | spend | price
+  const [lookback, setLookback] = useState(12);      // 1 | 3 | 6 | 12 month window
   const [trend, setTrend] = useState(null);
 
   useEffect(() => { j("/api/pce/overview").then(setOv); }, []);
-  useEffect(() => { j("/api/pce/breakdown").then(setBd); }, []);
+  useEffect(() => { setBd(null); j(`/api/pce/breakdown?lookback=${lookback}`).then(setBd); }, [lookback]);
   useEffect(() => {
     j("/api/pce/months").then((m) => {
       setMonths(m);
@@ -42,10 +43,11 @@ export default function PceExplorer() {
   const rows = bd?.rows || [];
   const sorted = useMemo(() => {
     const r = rows.filter((x) => x.line !== 1);     // drop the total (it's the hero)
-    if (sortBy === "spend") return [...r].sort((a, b) => (b.spend_yoy ?? -99) - (a.spend_yoy ?? -99));
-    if (sortBy === "price") return [...r].sort((a, b) => (b.price_yoy ?? -99) - (a.price_yoy ?? -99));
+    if (sortBy === "spend") return [...r].sort((a, b) => (b.spend_win ?? -99) - (a.spend_win ?? -99));
+    if (sortBy === "price") return [...r].sort((a, b) => (b.price_win ?? -99) - (a.price_win ?? -99));
     return [...r].sort((a, b) => (b.share_pct ?? -1) - (a.share_pct ?? -1));  // share = biggest → smallest
   }, [rows, sortBy]);
+  const WIN = { 1: "1-month", 3: "3-month", 6: "6-month", 12: "12-month" };
   const maxShare = Math.max(1, ...rows.filter((x) => x.line !== 1).map((x) => x.share_pct || 0));
   const lineName = rows.find((r) => r.line === line)?.line_text
     || (line === 1 ? "Personal consumption expenditures (PCE)" : `Line ${line}`);
@@ -105,18 +107,26 @@ export default function PceExplorer() {
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <div className="text-lg font-medium">Where the money goes</div>
-            <span className="text-xs text-slate-500">· {bd?.month || "…"} · total {fmtMoney(bd?.total_millions)}/yr</span>
+            <span className="text-xs text-slate-500">· {bd?.month || "…"} · total {fmtMoney(bd?.total_millions)}/yr · {WIN[lookback]} window</span>
           </div>
-          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
-            {[["share", "Share of wallet"], ["spend", "Spend growth"], ["price", "Price change"]].map(([k, lbl]) => (
-              <button key={k} onClick={() => setSortBy(k)}
-                className={`px-2.5 py-1 rounded-md text-xs ${sortBy === k ? "bg-[#30363d] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+              {[[1, "1M"], [3, "3M"], [6, "6M"], [12, "12M"]].map(([lb, lbl]) => (
+                <button key={lb} onClick={() => setLookback(lb)}
+                  className={`px-2.5 py-1 rounded-md text-xs ${lookback === lb ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+              {[["share", "Share of wallet"], ["spend", "Spend growth"], ["price", "Price change"]].map(([k, lbl]) => (
+                <button key={k} onClick={() => setSortBy(k)}
+                  className={`px-2.5 py-1 rounded-md text-xs ${sortBy === k ? "bg-[#30363d] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="text-xs text-slate-500 mb-4">
-          bar = share of total spending · <span style={{ color: BLUE }}>spend YoY</span> = how fast spending grew ·
-          <span style={{ color: HOT }}> price YoY</span> = inflation on that category (hot &gt; 2% target) · click a row to chart it ↑
+          <span className="text-slate-300">share</span> = % of total spending · <span style={{ color: BLUE }}>spend {WIN[lookback]}</span> = how fast spending grew ·
+          <span style={{ color: HOT }}> price {WIN[lookback]}</span> = inflation on that category (hot &gt; 2% target) · click a row to chart it ↑
         </div>
         {bd === null
           ? <div className="text-slate-500 p-6 text-sm">Loading…</div>
@@ -130,12 +140,9 @@ export default function PceExplorer() {
                     <span className="flex items-center gap-4 tabular-nums shrink-0 text-xs">
                       <span className="text-slate-400 w-14 text-right">{fmtMoney(r.spend_millions)}</span>
                       <span className="w-12 text-right font-semibold text-slate-100">{r.share_pct?.toFixed(1)}%</span>
-                      <span className="w-20 text-right" style={{ color: growthColor(r.spend_yoy) }}>{signed(r.spend_yoy)} spd</span>
-                      <span className="w-20 text-right" style={{ color: priceColor(r.price_yoy) }}>{signed(r.price_yoy)} prc</span>
+                      <span className="w-20 text-right" style={{ color: growthColor(r.spend_win) }}>{signed(r.spend_win)} spd</span>
+                      <span className="w-20 text-right" style={{ color: priceColor(r.price_win) }}>{signed(r.price_win)} prc</span>
                     </span>
-                  </div>
-                  <div className="h-1.5 bg-[#0d1117] rounded mt-1 overflow-hidden">
-                    <div style={{ width: `${(r.share_pct / maxShare) * 100}%`, background: BLUE }} className="h-full rounded" />
                   </div>
                 </button>
               ))}

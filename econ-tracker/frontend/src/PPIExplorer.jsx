@@ -35,7 +35,7 @@ export default function PPIExplorer() {
   const [expanded, setExpanded] = useState(() => new Set([CLASSES.fd.root]));
   const [lookback, setLookback] = useState(1);
   const [metric, setMetric] = useState("yoy_pct");
-  const [mfreq, setMfreq] = useState("q");   // momentum granularity: quarterly | monthly
+  const [mfreq, setMfreq] = useState("q");   // momentum granularity: monthly | quarterly | semi-annual
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -239,18 +239,21 @@ export default function PPIExplorer() {
           <div className="bg-[#121821] border border-[#1e2733] rounded-xl p-5">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="text-sm text-slate-400">
-                {mfreq === "q" ? "Quarterly change" : "Monthly change"} ({commodity ? "NSA" : "SA"}), last 24 ·{" "}
-                {mfreq === "q" ? "QoQ" : "MoM"} accel {fmt(momentum.summary.accel_mom, "pp")}
+                {mfreq === "q" ? "Quarter-over-quarter" : mfreq === "h" ? "Half-over-half" : "Monthly"} change
+                ({commodity ? "NSA" : "SA"}), last 24 ·{" "}
+                {mfreq === "q" ? "QoQ" : mfreq === "h" ? "HoH" : "MoM"} accel {fmt(momentum.summary.accel_mom, "pp")}
               </div>
               <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
-                {[["q", "Quarterly"], ["m", "Monthly"]].map(([k, l]) => (
+                {[["m", "Monthly"], ["q", "Quarterly"], ["h", "Semi-annual"]].map(([k, l]) => (
                   <button key={k} onClick={() => setMfreq(k)}
                     className={`px-2.5 py-1 rounded-md text-xs ${mfreq === k ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-200"}`}>{l}</button>
                 ))}
               </div>
             </div>
             {mfreq === "q"
-              ? <MomentumBars data={(momentum.quarters || []).slice(-24).map((q) => ({ ym: q.label, label: q.label, mom_pct: q.chg_pct }))} quarterly />
+              ? <MomentumBars data={(momentum.quarters || []).slice(-24).map((q) => ({ ym: q.label, label: q.label, mom_pct: q.chg_pct }))} periodic />
+              : mfreq === "h"
+              ? <MomentumBars data={(momentum.halves || []).slice(-24).map((h) => ({ ym: h.label, label: h.label, mom_pct: h.chg_pct }))} periodic />
               : <MomentumBars data={momentum.series.slice(-24)} />}
           </div>
         )}
@@ -308,13 +311,13 @@ function RangeSelect({ value, onChange, options }) {
   );
 }
 
-function MomentumBars({ data, quarterly }) {
+function MomentumBars({ data, periodic }) {
   const W = 1200, H = 190, pad = 24, gap = data.length > 14 ? 4 : 6;
   const vals = data.map((d) => d.mom_pct ?? 0);
   const max = Math.max(0.1, ...vals.map(Math.abs));
-  const bw = (W - pad * 2) / data.length - gap;
+  const bw = (W - pad * 2) / Math.max(1, data.length) - gap;
   const zero = H / 2 + 8;
-  const dense = data.length > 14 && !quarterly;   // quarters: label every bar
+  const dense = data.length > 14 && !periodic;   // periods: label every bar
   return (
     <svg viewBox={`0 0 ${W} ${H + 8}`} className="w-full">
       <line x1={pad} x2={W - pad} y1={zero} y2={zero} stroke="#30363d" />
@@ -323,13 +326,14 @@ function MomentumBars({ data, quarterly }) {
         const h = (Math.abs(v) / max) * (H / 2 - 24);
         const x = pad + i * (bw + gap);
         const y = v >= 0 ? zero - h : zero;
-        const show = !dense || i % 2 === 0;
+        const showLbl = !dense || i % 2 === 0;
+        const [t1, t2] = d.label.split(" ");
         return (
           <g key={d.ym}>
             <rect x={x} y={y} width={bw} height={h} rx="2" fill={v >= 0 ? UP : DOWN} />
-            {show && <text x={x + bw / 2} y={v >= 0 ? y - 4 : y + h + 11} textAnchor="middle" fontSize="9.5" fill="#7d8590">{v >= 0 ? "+" : ""}{v.toFixed(2)}</text>}
-            {show && <text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="9" fill="#586069">{d.label.split(" ")[0]}</text>}
-            {show && <text x={x + bw / 2} y={H + 4} textAnchor="middle" fontSize="7.5" fill="#3d444d">{d.label.split(" ")[1]?.slice(2)}</text>}
+            {d.mom_pct != null && <text x={x + bw / 2} y={v >= 0 ? y - 4 : y + h + 11} textAnchor="middle" fontSize="9.5" fill="#7d8590">{v >= 0 ? "+" : ""}{v.toFixed(2)}</text>}
+            {showLbl && <text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="9" fill="#586069">{t1}</text>}
+            {showLbl && <text x={x + bw / 2} y={H + 4} textAnchor="middle" fontSize="7.5" fill="#3d444d">{t2?.length > 2 ? t2.slice(2) : t2}</text>}
           </g>
         );
       })}

@@ -304,6 +304,7 @@ function SurveyDashboard({ survey }) {
 
   const [headline, setHeadline] = useState(null);
   const [momentum, setMomentum] = useState(null);
+  const [momPeriod, setMomPeriod] = useState("month"); // month | quarter | half
   const [drivers, setDrivers] = useState(null);
   const [lookback, setLookback] = useState(1);
   const [history, setHistory] = useState([]);
@@ -383,26 +384,47 @@ function SurveyDashboard({ survey }) {
       {/* CPI cockpit rows */}
       {survey === "cpi" && <>
       {/* Row 2 — Momentum */}
-      {momentum && (
+      {momentum && (() => {
+        const PERIODS = { month: "monthly change (SA)", quarter: "quarter-over-quarter (SA)", half: "half-over-half (SA)" };
+        const barData =
+          momPeriod === "quarter" ? (momentum.quarters || []).map((q) => ({ key: q.label, label: q.label, value: q.chg_pct }))
+          : momPeriod === "half" ? (momentum.halves || []).map((h) => ({ key: h.label, label: h.label, value: h.chg_pct }))
+          : (momentum.series || []).map((m) => ({ key: m.ym, label: m.label, value: m.mom_pct }));
+        return (
         <div className="bg-[#121821] border border-[#1e2733] rounded-xl p-6 mb-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-sm text-slate-400">Inflation momentum · monthly change (SA), last 24</div>
+          <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
+            <div>
+              <div className="text-sm text-slate-400 mb-2">Inflation momentum · {PERIODS[momPeriod]}, last {barData.length}</div>
+              <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733] w-fit">
+                {[["month", "Monthly"], ["quarter", "Quarterly"], ["half", "Semi-annual"]].map(([p, lbl]) => (
+                  <button key={p} onClick={() => setMomPeriod(p)}
+                    className={`px-3 py-1 rounded-md text-xs ${momPeriod === p ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+                ))}
+              </div>
+            </div>
             <div className="flex gap-5 text-sm">
               <Tile label="3-mo annualized" v={momentum.summary.ann3_pct} suffix="%" />
               <Tile label="MoM accel." v={momentum.summary.accel_mom} suffix=" pp" signed />
               <Tile label="YoY accel." v={momentum.summary.accel_yoy} suffix=" pp" signed />
             </div>
           </div>
-          <MomentumBars data={momentum.series.slice(-24)} />
+          <MomentumBars data={barData} />
         </div>
-      )}
+        );
+      })()}
 
       {/* Row 3 — Trend chart */}
       <div className="bg-[#121821] border border-[#1e2733] rounded-xl p-5 mb-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
           <div className="flex items-end gap-3 flex-wrap">
             <div>
-              <div className="text-lg font-medium">{itemName}</div>
+              <div className="text-lg font-medium flex items-center gap-2">
+                {itemName}
+                {trend.length > 0 && trend[0].basis === "NSA" && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#1f2d3d] text-[#d29922] border border-[#3d2e12]"
+                    title="Seasonally-adjusted data for this category only begins later at BLS. Showing the unadjusted (NSA) series so the full history is visible — read the YoY line, not MoM.">NSA · deep history</span>
+                )}
+              </div>
               <div className="text-xs text-slate-500">{label(from)} → {label(to)}</div>
             </div>
             <select value={item} onChange={(e) => setItem(e.target.value)}
@@ -626,27 +648,28 @@ function Tile({ label, v, suffix = "", signed }) {
 
 function MomentumBars({ data }) {
   const W = 1200, H = 190, pad = 24, gap = data.length > 14 ? 4 : 6;
-  const vals = data.map((d) => d.mom_pct ?? 0);
+  const vals = data.map((d) => d.value ?? 0);
   const max = Math.max(0.1, ...vals.map(Math.abs));
-  const bw = (W - pad * 2) / data.length - gap;
+  const bw = (W - pad * 2) / Math.max(1, data.length) - gap;
   const zero = H / 2 + 8;
   const dense = data.length > 14;
   return (
     <svg viewBox={`0 0 ${W} ${H + 8}`} className="w-full">
       <line x1={pad} x2={W - pad} y1={zero} y2={zero} stroke="#30363d" />
       {data.map((d, i) => {
-        const v = d.mom_pct ?? 0;
+        const v = d.value ?? 0;
         const h = (Math.abs(v) / max) * (H / 2 - 24);
         const x = pad + i * (bw + gap);
         const y = v >= 0 ? zero - h : zero;
-        const showVal = !dense || i % 2 === 0;
-        const showMon = !dense || i % 2 === 0;
+        const showVal = true;                 // always print the number — no half-empty bars
+        const showLbl = !dense || i % 2 === 0; // thin axis labels only when crowded
+        const [t1, t2] = d.label.split(" ");
         return (
-          <g key={d.ym}>
+          <g key={d.key}>
             <rect x={x} y={y} width={bw} height={h} rx="2" fill={v >= 0 ? UP : DOWN} />
-            {showVal && <text x={x + bw / 2} y={v >= 0 ? y - 4 : y + h + 11} textAnchor="middle" fontSize="9.5" fill="#7d8590">{v >= 0 ? "+" : ""}{v.toFixed(2)}</text>}
-            {showMon && <text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="9" fill="#586069">{d.label.split(" ")[0]}</text>}
-            {showMon && <text x={x + bw / 2} y={H + 4} textAnchor="middle" fontSize="7.5" fill="#3d444d">{d.label.split(" ")[1]?.slice(2)}</text>}
+            {showVal && d.value != null && <text x={x + bw / 2} y={v >= 0 ? y - 4 : y + h + 11} textAnchor="middle" fontSize="9.5" fill="#7d8590">{v >= 0 ? "+" : ""}{v.toFixed(2)}</text>}
+            {showLbl && <text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="9" fill="#586069">{t1}</text>}
+            {showLbl && <text x={x + bw / 2} y={H + 4} textAnchor="middle" fontSize="7.5" fill="#3d444d">{t2?.length > 2 ? t2.slice(2) : t2}</text>}
           </g>
         );
       })}

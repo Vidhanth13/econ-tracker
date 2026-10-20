@@ -23,7 +23,7 @@ Endpoints (all accept &survey=cpi|ppi, default cpi):
 from fastapi import FastAPI, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from db import query, execute
-import re
+import re, json, urllib.request, urllib.parse
 from datetime import datetime, timezone
 
 app = FastAPI(title="Econ Tracker API", version="4.0")
@@ -97,6 +97,13 @@ def _releases(metric, survey="cpi"):
 
 def _mom(sa, i):
     return round((sa[i]["value"] / sa[i - 1]["value"] - 1) * 100, 2) if i >= 1 else None
+
+
+def _winpct(vmap, ordv, n):
+    """% change over n months ending at ordinal `ordv`, gap-safe via the ord map."""
+    base = vmap.get(ordv - n)
+    cur = vmap.get(ordv)
+    return round((cur / base - 1) * 100, 2) if (base and cur) else None
 
 
 def _yoy_from(nsa_map, s):
@@ -219,15 +226,40 @@ def categories(survey: str = "cpi", cls: str = "fd"):
 @app.get("/api/trend")
 def trend(item: str = None, frm: str = Query(..., alias="from"), to: str = Query(...),
           survey: str = "cpi", cls: str = "fd"):
+    """Line-graph series. Convention: SA index + SA MoM + NSA YoY.
+
+    Deep-history fallback: for many CPI/PPI sub-indices BLS only publishes the
+    seasonally-adjusted series from ~2009-2011, while the unadjusted (NSA) one
+    runs back decades. When the requested window starts before SA history
+    begins and NSA reaches further back, we draw the whole line from NSA
+    (MoM and YoY both NSA) and flag basis="NSA" so the UI can badge it. The
+    PPI commodity lens is already NSA-only, so it's unaffected."""
     item = item or cfg(survey)["headline"]
-    sa, nsa = _working(item, cls, survey)
+    sa, nsa_map = _working(item, cls, survey)
     fo, tob = _ord(frm), _ord(to)
-    out = []
-    for i, s in enumerate(sa):
-        if fo <= s["ord"] <= tob:
-            out.append({"period": s["ym"], "label": s["label"], "value": s["value"],
-                        "mom_pct": _mom(sa, i), "yoy_pct": _yoy_from(nsa, s)})
-    return out
+
+    # NSA fallback only for the SA-based lenses (fd); commodity is NSA already.
+    # When the requested window starts before SA history begins and NSA reaches
+    # further back, draw the whole line from NSA (MoM + YoY both NSA) so the deep
+    # history surfaces; each point carries basis so the UI can badge it.
+    if cls == "fd":
+        nsa = _series(item, "U", survey)
+        sa_start = sa[0]["ord"] if sa else None
+        nsa_start = nsa[0]["ord"] if nsa else None
+        if sa_start and nsa_start and fo < sa_start and nsa_start < sa_start:
+            nmap = {s["ord"]: s["value"] for s in nsa}
+            return [{"period": s["ym"], "label": s["label"], "value": s["value"],
+                     "mom_pct": _mom(nsa, i), "yoy_pct": _yoy_from(nmap, s),
+                     "win3_pct": _winpct(nmap, s["ord"], 3), "win6_pct": _winpct(nmap, s["ord"], 6),
+                     "basis": "NSA"}
+                    for i, s in enumerate(nsa) if fo <= s["ord"] <= tob]
+
+    smap = {s["ord"]: s["value"] for s in sa}
+    return [{"period": s["ym"], "label": s["label"], "value": s["value"],
+             "mom_pct": _mom(sa, i), "yoy_pct": _yoy_from(nsa_map, s),
+             "win3_pct": _winpct(smap, s["ord"], 3), "win6_pct": _winpct(smap, s["ord"], 6),
+             "basis": "SA"}
+            for i, s in enumerate(sa) if fo <= s["ord"] <= tob]
 
 
 @app.get("/api/headline")
@@ -299,23 +331,33 @@ def momentum(item: str = None, n: int = 24, survey: str = "cpi", cls: str = "fd"
     if len(yoys) >= 4:
         accel_yoy = round(yoys[-1] - yoys[-4], 2)
 
-    # quarterly momentum: quarter-average index, QoQ % change, last 24 quarters
-    qagg = {}   # (year, q) -> [values]
-    for s in sa:
-        q = (int(s["period"][1:]) - 1) // 3 + 1
-        qagg.setdefault((s["year"], q), []).append(s["value"])
-    qkeys = sorted(k for k, v in qagg.items() if len(v) == 3)   # complete quarters only
-    quarters = []
-    for i, k in enumerate(qkeys):
-        avg = sum(qagg[k]) / 3
-        prev = sum(qagg[qkeys[i - 1]]) / 3 if i >= 1 and \
-            (qkeys[i - 1][0] * 4 + qkeys[i - 1][1]) == (k[0] * 4 + k[1] - 1) else None
-        quarters.append({"label": f"Q{k[1]} {k[0]}", "year": k[0], "q": k[1],
-                         "chg_pct": round((avg / prev - 1) * 100, 2) if prev else None})
+    # Period-over-period momentum on a period-average index. One helper covers
+    # quarterly (3-mo buckets, QoQ) and semi-annual (6-mo buckets, HoH); each is
+    # a period-average % change, only complete periods, consecutive-gap-safe.
+    def _periodic(size, labeler):
+        agg = {}   # (year, bucket) -> [values]
+        for s in sa:
+            b = (int(s["period"][1:]) - 1) // size + 1
+            agg.setdefault((s["year"], b), []).append(s["value"])
+        per_year = 12 // size
+        keys = sorted(k for k, v in agg.items() if len(v) == size)   # complete only
+        out = []
+        for i, k in enumerate(keys):
+            avg = sum(agg[k]) / size
+            adj = (keys[i - 1][0] * per_year + keys[i - 1][1]) if i >= 1 else None
+            prev = (sum(agg[keys[i - 1]]) / size
+                    if adj == (k[0] * per_year + k[1] - 1) else None)
+            out.append({"label": labeler(k), "year": k[0], "bucket": k[1],
+                        "chg_pct": round((avg / prev - 1) * 100, 2) if prev else None})
+        return out
+
+    quarters = _periodic(3, lambda k: f"Q{k[1]} {k[0]}")
+    halves = _periodic(6, lambda k: f"H{k[1]} {k[0]}")
 
     return {
         "series": tail,
         "quarters": quarters[-n:],
+        "halves": halves[-n:],
         "summary": {
             "mom_latest": moms[-1] if moms else None,
             "yoy_latest": yoys[-1] if yoys else None,
@@ -604,36 +646,60 @@ def jolts_trend(keys: str = "openings,quits,hires", industry: str = "000000",
 
 
 @app.get("/api/jolts/industry")
-def jolts_industry(key: str = "openings", month: str = None):
+def jolts_industry(key: str = "openings", month: str = None, lookback: int = 1):
     """Cross-industry breakdown for one metric in a given month (default latest).
-    Rate value + point-change vs prior month & prior year, sorted worst-first
-    for layoffs/slack, best-first otherwise (handled client-side)."""
+    Rate value + POINT change over a trailing window (1/3/6/12 months) + YoY.
+    lookback=1 is the classic MoM mover list; wider windows show the change in
+    the rate over that horizon. Computed from observations by ordinal (gap-safe)."""
     h = JOLTS_HEAD.get(key, JOLTS_HEAD["openings"])
     spine = _jt_report(jt_sid(h["element"], h["rate"]))
     ym = month or (spine[-1]["ym"] if spine else None)
     if not ym:
         return {"key": key, "month": None, "rows": []}
-    y, m = ym.split("-"); period = f"M{int(m):02d}"
+    lb = max(1, lookback)
+    o = _ord(ym)
+
+    def de(n):
+        return (n - 1) // 12, f"M{((n - 1) % 12) + 1:02d}"
+
+    ty, tp = de(o)
+    wy, wp = de(o - lb)      # window start
+    yy, yp = de(o - 12)      # a year ago
     rows = query(
         """
-        SELECT ind.industry_code, ind.industry_text, ind.display_level, ind.sort_sequence,
-               r.value, r.mom_chg, r.yoy_chg
-        FROM jolts.v_report r
-        JOIN jolts.series s ON s.series_id=r.series_id
-        JOIN jolts.industry ind ON ind.industry_code=s.industry_code
-        WHERE s.dataelement_code=%(el)s AND s.ratelevel_code=%(rl)s
-          AND s.seasonal='S' AND s.state_code='00' AND s.area_code='00000'
-          AND s.sizeclass_code='00'
-          AND r.year=%(y)s AND r.period=%(p)s AND r.value IS NOT NULL
-        ORDER BY ind.sort_sequence
-        """, {"el": h["element"], "rl": h["rate"], "y": int(y), "p": period})
+        WITH ser AS (
+          SELECT s.series_id, ind.industry_code, ind.industry_text,
+                 ind.display_level, ind.sort_sequence
+          FROM jolts.series s
+          JOIN jolts.industry ind ON ind.industry_code=s.industry_code
+          WHERE s.dataelement_code=%(el)s AND s.ratelevel_code=%(rl)s
+            AND s.seasonal='S' AND s.state_code='00' AND s.area_code='00000'
+            AND s.sizeclass_code='00'
+        ),
+        vt AS (SELECT series_id,value FROM jolts.observation WHERE year=%(ty)s AND period=%(tp)s),
+        vw AS (SELECT series_id,value FROM jolts.observation WHERE year=%(wy)s AND period=%(wp)s),
+        vy AS (SELECT series_id,value FROM jolts.observation WHERE year=%(yy)s AND period=%(yp)s)
+        SELECT ser.industry_code, ser.industry_text, ser.display_level, ser.sort_sequence,
+               vt.value AS v,
+               (vt.value - vw.value) AS win_chg,
+               (vt.value - vy.value) AS yoy_chg
+        FROM ser JOIN vt ON vt.series_id=ser.series_id
+        LEFT JOIN vw ON vw.series_id=ser.series_id
+        LEFT JOIN vy ON vy.series_id=ser.series_id
+        WHERE vt.value IS NOT NULL
+        ORDER BY ser.sort_sequence
+        """, {"el": h["element"], "rl": h["rate"], "ty": ty, "tp": tp,
+              "wy": wy, "wp": wp, "yy": yy, "yp": yp})
+    f = lambda x: round(float(x), 2) if x is not None else None
     return {"key": key, "label": h["label"], "unit": h["unit"],
-            "month": _label(int(y), period), "ym": ym,
+            "month": _label(ty, tp), "ym": ym, "lookback": lb,
+            "from_label": _label(wy, wp),
             "rows": [{"industry_code": r["industry_code"], "industry_text": r["industry_text"],
                       "display_level": r["display_level"],
-                      "value": float(r["value"]),
-                      "mom_chg": float(r["mom_chg"]) if r["mom_chg"] is not None else None,
-                      "yoy_chg": float(r["yoy_chg"]) if r["yoy_chg"] is not None else None}
+                      "value": float(r["v"]),
+                      "win_chg": f(r["win_chg"]),
+                      "mom_chg": f(r["win_chg"]),   # alias: list ranks on the window change
+                      "yoy_chg": f(r["yoy_chg"])}
                      for r in rows]}
 
 
@@ -742,34 +808,58 @@ def ces_trend(key: str = "nfp", industry: str = None,
 
 
 @app.get("/api/ces/industry")
-def ces_industry(month: str = None):
-    """Where the jobs are: each supersector's employment level + MONTHLY CHANGE
-    (jobs added, 000s) + YoY, for a month (default latest). This is the sector
-    contribution to the headline NFP number."""
+def ces_industry(month: str = None, lookback: int = 1):
+    """Where the jobs are: each supersector's employment level + the JOBS ADDED
+    over a trailing window (1/3/6/12 months, 000s) + YoY, for a month (default
+    latest). lookback=1 is the classic monthly NFP sector contribution; wider
+    windows sum the trend (e.g. 3M = jobs added over the last quarter). Computed
+    from observations by ordinal so it is gap-safe over any window."""
     spine = _ce_report(ce_sid("00000000", "01"))
     ym = month or (spine[-1]["ym"] if spine else None)
     if not ym:
         return {"month": None, "rows": []}
-    y, m = ym.split("-"); period = f"M{int(m):02d}"
+    lb = max(1, lookback)
+    o = _ord(ym)
+
+    def de(n):
+        return (n - 1) // 12, f"M{((n - 1) % 12) + 1:02d}"
+
+    ty, tp = de(o)
+    wy, wp = de(o - lb)      # window start
+    yy, yp = de(o - 12)      # a year ago
     rows = query(
         """
-        SELECT ind.industry_code, ind.industry_name, ind.display_level, ind.sort_sequence,
-               r.value, r.mom_chg, r.yoy_chg, r.yoy_pct
-        FROM ces.v_report r
-        JOIN ces.series s   ON s.series_id = r.series_id
-        JOIN ces.industry ind ON ind.industry_code = s.industry_code
-        WHERE s.data_type_code='01' AND s.seasonal='S'
-          AND ind.display_level <= 2
-          AND r.year=%(y)s AND r.period=%(p)s AND r.value IS NOT NULL
-        ORDER BY ind.sort_sequence
-        """, {"y": int(y), "p": period})
-    return {"month": _label(int(y), period), "ym": ym,
+        WITH ser AS (
+          SELECT s.series_id, ind.industry_code, ind.industry_name,
+                 ind.display_level, ind.sort_sequence
+          FROM ces.series s
+          JOIN ces.industry ind ON ind.industry_code = s.industry_code
+          WHERE s.data_type_code='01' AND s.seasonal='S' AND ind.display_level <= 2
+        ),
+        vt AS (SELECT series_id,value FROM ces.observation WHERE year=%(ty)s AND period=%(tp)s),
+        vw AS (SELECT series_id,value FROM ces.observation WHERE year=%(wy)s AND period=%(wp)s),
+        vy AS (SELECT series_id,value FROM ces.observation WHERE year=%(yy)s AND period=%(yp)s)
+        SELECT ser.industry_code, ser.industry_name, ser.display_level, ser.sort_sequence,
+               vt.value AS v,
+               (vt.value - vw.value) AS win_chg,
+               round((vt.value/NULLIF(vw.value,0)-1)*100,2) AS win_pct,
+               (vt.value - vy.value) AS yoy_chg,
+               round((vt.value/NULLIF(vy.value,0)-1)*100,2) AS yoy_pct
+        FROM ser JOIN vt ON vt.series_id=ser.series_id
+        LEFT JOIN vw ON vw.series_id=ser.series_id
+        LEFT JOIN vy ON vy.series_id=ser.series_id
+        WHERE vt.value IS NOT NULL
+        ORDER BY ser.sort_sequence
+        """, {"ty": ty, "tp": tp, "wy": wy, "wp": wp, "yy": yy, "yp": yp})
+    f = lambda x: float(x) if x is not None else None
+    return {"month": _label(ty, tp), "ym": ym, "lookback": lb,
+            "from_label": _label(wy, wp),
             "rows": [{"industry_code": r["industry_code"], "industry_name": r["industry_name"],
                       "display_level": r["display_level"],
-                      "value": float(r["value"]),
-                      "mom_chg": float(r["mom_chg"]) if r["mom_chg"] is not None else None,
-                      "yoy_chg": float(r["yoy_chg"]) if r["yoy_chg"] is not None else None,
-                      "yoy_pct": float(r["yoy_pct"]) if r["yoy_pct"] is not None else None}
+                      "value": f(r["v"]),
+                      "win_chg": f(r["win_chg"]), "win_pct": f(r["win_pct"]),
+                      "mom_chg": f(r["win_chg"]),   # back-compat alias (window change)
+                      "yoy_chg": f(r["yoy_chg"]), "yoy_pct": f(r["yoy_pct"])}
                      for r in rows]}
 
 
@@ -864,16 +954,21 @@ def pce_overview():
 
 
 @app.get("/api/pce/breakdown")
-def pce_breakdown(month: str = None, include_addenda: bool = False):
+def pce_breakdown(month: str = None, include_addenda: bool = False, lookback: int = 12):
     """What people spend on, for one month: each line's share of wallet + spend
-    growth + the price change on that category. Default latest month."""
+    growth + the price change on that category. The window toggle (lookback =
+    1/3/6/12 months) sets what spend_win / price_win measure — 1M is the latest
+    month, 12M the year. spend_mom / spend_yoy / price_* are always returned too
+    so existing callers keep working. Default latest month."""
     spine = _pce_series(PCE_HEADLINE, "D")
     if not spine:
         return {"month": None, "rows": []}
     ym = month or spine[-1]["ym"]
     o = _ord(ym)
+    lb = max(1, lookback)
     d_cur, d_mom, d_yoy = _pce_monthvals(o, "D"), _pce_monthvals(o - 1, "D"), _pce_monthvals(o - 12, "D")
     p_cur, p_mom, p_yoy = _pce_monthvals(o, "P"), _pce_monthvals(o - 1, "P"), _pce_monthvals(o - 12, "P")
+    d_win, p_win = _pce_monthvals(o - lb, "D"), _pce_monthvals(o - lb, "P")
     total = d_cur.get(PCE_HEADLINE)
     lines = query(
         """SELECT line_number, line_text, display_level, parent_line, is_addendum
@@ -896,10 +991,12 @@ def pce_breakdown(month: str = None, include_addenda: bool = False):
             "spend_mom": _pct(cur, d_mom.get(ln)),
             "price_yoy": _pct(p_cur.get(ln), p_yoy.get(ln)),
             "price_mom": _pct(p_cur.get(ln), p_mom.get(ln)),
+            "spend_win": _pct(cur, d_win.get(ln)),
+            "price_win": _pct(p_cur.get(ln), p_win.get(ln)),
         })
     yy, mm = ym.split("-")
     return {"month": _label(int(yy), f"M{int(mm):02d}"),
-            "ym": ym, "total_millions": total, "rows": out}
+            "ym": ym, "total_millions": total, "lookback": lb, "rows": out}
 
 
 @app.get("/api/pce/trend")

@@ -23,6 +23,7 @@ export default function JoltsExplorer() {
   const [trend, setTrend] = useState(null);
   const [ind, setInd] = useState(null);
   const [indKey, setIndKey] = useState("openings");
+  const [indWin, setIndWin] = useState(1);            // 1 | 3 | 6 | 12 month window
   const [months, setMonths] = useState([]);           // {value,label} for the From/To pickers
   const [from, setFrom] = useState("");               // trend window start (ym)
   const [to, setTo] = useState("");                   // trend window end (ym)
@@ -46,9 +47,11 @@ export default function JoltsExplorer() {
   useEffect(() => {
     let alive = true;                 // ignore a superseded response (StrictMode/rapid toggle)
     setInd(null);
-    j(`/api/jolts/industry?key=${indKey}`).then((d) => { if (alive) setInd(d); });
+    j(`/api/jolts/industry?key=${indKey}&lookback=${indWin}`).then((d) => { if (alive) setInd(d); });
     return () => { alive = false; };
-  }, [indKey]);
+  }, [indKey, indWin]);
+
+  const WINL = { 1: "vs prior month", 3: "over 3 months", 6: "over 6 months", 12: "over 12 months" };
 
   return (
     <div className="space-y-4">
@@ -112,17 +115,25 @@ export default function JoltsExplorer() {
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <div className="text-lg font-medium">By industry — movers</div>
-            <span className="text-xs text-slate-500">· {ind?.month || "…"}</span>
+            <span className="text-xs text-slate-500">· {ind?.month || "…"} · change {WINL[indWin]}</span>
           </div>
-          <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
-            {["openings", "hires", "quits", "layoffs"].map((k) => (
-              <button key={k} onClick={() => setIndKey(k)}
-                className={`px-2.5 py-1 rounded-md text-xs ${indKey === k ? "bg-[#30363d] text-white" : "text-slate-400 hover:text-slate-200"}`}>{label(k)}</button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+              {[[1, "1M"], [3, "3M"], [6, "6M"], [12, "12M"]].map(([lb, lbl]) => (
+                <button key={lb} onClick={() => setIndWin(lb)}
+                  className={`px-2.5 py-1 rounded-md text-xs ${indWin === lb ? "bg-[#1f6feb] text-white" : "text-slate-400 hover:text-slate-200"}`}>{lbl}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 bg-[#0d1117] rounded-lg p-1 border border-[#1e2733]">
+              {["openings", "hires", "quits", "layoffs"].map((k) => (
+                <button key={k} onClick={() => setIndKey(k)}
+                  className={`px-2.5 py-1 rounded-md text-xs ${indKey === k ? "bg-[#30363d] text-white" : "text-slate-400 hover:text-slate-200"}`}>{label(k)}</button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="text-xs text-slate-500 mb-4">
-          ranked by change vs prior month (SA) · <span style={{ color: GOOD }}>picking up</span> / <span style={{ color: BAD }}>slowing down</span> coloured by what it means for {label(indKey).toLowerCase()}
+          ranked by change {WINL[indWin]} (SA) · <span style={{ color: GOOD }}>picking up</span> / <span style={{ color: BAD }}>slowing down</span> coloured by what it means for {label(indKey).toLowerCase()}
           <span className="text-slate-600"> · click a row to chart it over time ↑</span>
         </div>
         {ind === null
